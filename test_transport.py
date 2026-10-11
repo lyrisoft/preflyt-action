@@ -20,7 +20,7 @@ class PublicationGateTests(unittest.TestCase):
                     transport.wait_for_publication("123", "1")
 
     def test_timeout_and_api_failure_fail(self):
-        with patch.object(transport.time, "monotonic", side_effect=[0, 601]):
+        with patch.object(transport.time, "monotonic", side_effect=[0, 901]):
             with self.assertRaises(TimeoutError):
                 transport.wait_for_publication("123", "1")
         with patch.object(transport, "api", side_effect=OSError("offline")):

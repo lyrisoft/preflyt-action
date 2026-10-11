@@ -182,7 +182,7 @@ def main():
         results.append({'ruleId': rule['id'], 'title': rule['title'], 'required': rule['required'], 'status': status})
     required = [item for item in results if item['required']]
     overall = 'failed' if any(item['status'] == 'failed' for item in required) else 'incomplete' if any(item['status'] != 'passed' for item in required) or not required else 'passed'
-    bundle = {'schemaVersion': 1, 'repositoryId': os.environ['GITHUB_REPOSITORY_ID'], 'sourceSha': os.environ['GITHUB_SHA'], 'headSha': policy['headSha'], 'runId': os.environ['GITHUB_RUN_ID'], 'runAttempt': int(os.environ['GITHUB_RUN_ATTEMPT']), 'signerWorkflow': os.environ['GITHUB_WORKFLOW_REF'].split('@')[0], 'policyId': policy['id'], 'policyHash': policy['definitionHash'], 'results': results, 'reports': reports}
+    bundle = {'schemaVersion': 1, 'verificationScope': 'jobs', 'jobName': os.environ.get('PREFLYT_JOB_NAME', os.environ.get('GITHUB_JOB', '')),  'repositoryId': os.environ['GITHUB_REPOSITORY_ID'], 'sourceSha': os.environ['GITHUB_SHA'], 'headSha': policy['headSha'], 'runId': os.environ['GITHUB_RUN_ID'], 'runAttempt': int(os.environ['GITHUB_RUN_ATTEMPT']), 'signerWorkflow': os.environ['GITHUB_WORKFLOW_REF'].split('@')[0], 'policyId': policy['id'], 'policyHash': policy['definitionHash'], 'results': results, 'reports': reports}
     encoded = json.dumps(bundle).encode()
     if len(encoded) > MAX_BUNDLE:
         raise ValueError('Combined results exceed size limit')

@@ -50,7 +50,7 @@ def api(path, body=None):
                 raise
         time.sleep(2 ** attempt)
 
-def wait_for_publication(run_id, attempt, timeout=600):
+def wait_for_publication(run_id, attempt, timeout=900):
     if not run_id.isdigit() or not attempt.isdigit():
         raise ValueError('Invalid source run')
     deadline = time.monotonic() + timeout
@@ -64,7 +64,7 @@ def wait_for_publication(run_id, attempt, timeout=600):
         if state != 'PENDING':
             raise ValueError('Publication response was not confirmed')
         time.sleep(5)
-    raise TimeoutError('Preflyt publication was not verified within ten minutes')
+    raise TimeoutError('Preflyt publication was not verified within fifteen minutes')
 
 def main():
     if sys.argv[1] == 'fetch':
@@ -86,7 +86,7 @@ def main():
         if receipt.get('verification') != 'PENDING' or not receipt.get('id'):
             raise ValueError('Result submission was not confirmed')
         with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
-            output.write('\nResults received by Preflyt; completed-run verification is pending.\n')
+            output.write('\nResults received by Preflyt; completed-job verification and PR publication are pending.\n')
     elif sys.argv[1] == 'gate':
         wait_for_publication(os.environ['PREFLYT_SOURCE_RUN_ID'], os.environ['PREFLYT_SOURCE_RUN_ATTEMPT'])
         with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
@@ -99,7 +99,7 @@ if __name__ == '__main__':
         main()
     except Exception:
         if len(sys.argv) > 1 and sys.argv[1] == 'gate':
-            print('::error::Preflyt could not confirm a passing GitHub publication. Publication failed, the result is incomplete, the PR changed, or the ten-minute wait expired. Rerun the checks workflow or this gate after resolving the error.')
+            print('::error::Preflyt could not confirm a passing GitHub publication. Publication failed, the result is incomplete, the PR changed, or the fifteen-minute wait expired. Rerun the checks workflow or this gate after resolving the error.')
             raise SystemExit(1)
         print('::error::Preflyt could not fetch the policy or submit results. Check API reachability, id-token permission, published policy and enabled PR checks.')
         raise SystemExit(1)

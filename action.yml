@@ -13,14 +13,17 @@ inputs:
     required: false
     default: '{}'
   mode:
-    description: check runs policy checks; gate waits for verified publication after the source workflow completes.
+    description: check runs policy checks; gate waits for verified check jobs, configured AI reviews and PR publication in the same workflow.
     required: false
     default: check
   source-run:
-    description: Source workflow run ID, required for gate mode.
+    description: Optional source run ID. Defaults to the current workflow run.
     required: false
   source-attempt:
-    description: Source workflow run attempt, required for gate mode.
+    description: Optional source attempt. Defaults to the current workflow attempt.
+    required: false
+  job-name:
+    description: Check job display name when it differs from its YAML ID. Defaults to the current job ID.
     required: false
   proofs:
     description: Optional JSON mapping report paths to existing signed proof bundle paths.
@@ -59,6 +62,7 @@ runs:
         PREFLYT_POLICY_PATH: ${{ steps.policy.outputs.policy }}
         PREFLYT_CHECKS_PATH: ${{ inputs.checks }}
         PREFLYT_PROOFS: ${{ inputs.proofs }}
+        PREFLYT_JOB_NAME: ${{ inputs.job-name || github.job }}
       run: python3 "$PREFLYT_ACTION_PATH/run.py"
     - name: Send results to Preflyt
       if: ${{ always() && inputs.mode == 'check' && steps.execute.outputs.bundle != '' }}
@@ -84,6 +88,6 @@ runs:
       env:
         PREFLYT_ACTION_PATH: ${{ github.action_path }}
         PREFLYT_API_URL: ${{ inputs.api-url }}
-        PREFLYT_SOURCE_RUN_ID: ${{ inputs.source-run }}
-        PREFLYT_SOURCE_RUN_ATTEMPT: ${{ inputs.source-attempt }}
+        PREFLYT_SOURCE_RUN_ID: ${{ inputs.source-run || github.run_id }}
+        PREFLYT_SOURCE_RUN_ATTEMPT: ${{ inputs.source-attempt || github.run_attempt }}
       run: python3 "$PREFLYT_ACTION_PATH/transport.py" gate
