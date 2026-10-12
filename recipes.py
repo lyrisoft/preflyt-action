@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from tools import scan
 
 
 def run(argv, env=None):
@@ -24,6 +25,24 @@ def node_script(script):
         raise ValueError('No matching package script. Add a custom workflow command to this check.')
     manager = 'pnpm' if Path('pnpm-lock.yaml').exists() else 'yarn' if Path('yarn.lock').exists() else 'npm'
     return [installed(manager), 'run', script]
+
+
+def compact_sarif(data):
+    """Drop unused rule descriptions, never findings or invocation diagnostics."""
+    for scan_run in data.get('runs', []):
+        driver = scan_run.get('tool', {}).get('driver', {})
+        rules = driver.get('rules', [])
+        referenced = {result.get('ruleId') for result in scan_run.get('results', [])}
+        indices = {result.get('ruleIndex') for result in scan_run.get('results', [])}
+        retained = [(index, rule) for index, rule in enumerate(rules)
+                    if rule.get('id') in referenced or index in indices]
+        remap = {old: new for new, (old, _) in enumerate(retained)}
+        if 'rules' in driver:
+            driver['rules'] = [rule for _, rule in retained]
+        for result in scan_run.get('results', []):
+            if 'ruleIndex' in result:
+                result['ruleIndex'] = remap[result['ruleIndex']]
+    return data
 
 
 def main(check, report):
@@ -46,24 +65,19 @@ def main(check, report):
             raise ValueError('Unsupported test runner. Add your JUnit-producing test command to this check.')
         return run([sys.executable, '-m', 'pytest', f'--junitxml={report}'])
     if check == 'security.sast':
-        config = next((name for name in ('.semgrep.yml', '.semgrep.yaml', '.semgrep') if Path(name).exists()), None)
-        if not config:
-            raise ValueError('Use your existing Semgrep configuration in a custom workflow command.')
-        code = run([installed('semgrep'), 'scan', '--config', config, '--metrics=off', '--disable-version-check', '--strict', '--sarif', '--output', report, '.'])
+        code = scan('semgrep', ['scan', '--config', 'p/default', '--metrics=off', '--disable-version-check', '--strict', '--sarif', '--output', report, '.'], report)
     elif check == 'secrets.scan':
-        tool = installed('gitleaks')
-        code = run([tool, 'dir', '.', '--redact', '--exit-code', '0', '--report-format', 'sarif', '--report-path', report])
+        code = scan('gitleaks', ['dir', '.', '--redact', '--exit-code', '0', '--report-format', 'sarif', '--report-path', report], report)
     elif check in ('security.dependencies', 'containers.scan', 'iac.policy', 'iac.exposures'):
-        tool = installed('trivy')
         if check == 'containers.scan':
             image = os.environ.get('CONTAINER_IMAGE')
             if not image: raise ValueError('Set CONTAINER_IMAGE to the image produced by your build.')
-            command = [tool, 'image', '--scanners', 'vuln']
+            command = ['image', '--scanners', 'vuln']
             target = image
         else:
-            command = [tool, 'fs', '--scanners', 'vuln' if check == 'security.dependencies' else 'misconfig']
+            command = ['fs', '--scanners', 'vuln' if check == 'security.dependencies' else 'misconfig']
             target = '.'
-        code = run([*command, '--format', 'sarif', '--output', report, target])
+        code = scan('trivy', [*command, '--cache-dir', '/cache', '--offline-scan', '--format', 'sarif', '--output', report, target], report)
     elif check == 'lint.required':
         if not Path('node_modules/.bin/eslint').exists():
             raise ValueError('No ESLint installation. Add your SARIF-producing lint command to this check.')
@@ -76,10 +90,10 @@ def main(check, report):
     # invocation only after this runner observed a successful real command.
     if code == 0:
         data = json.loads(output.read_text())
-        for scan in data.get('runs', []):
-            if not scan.get('invocations'):
-                scan['invocations'] = [{'executionSuccessful': True}]
-        output.write_text(json.dumps(data))
+        for scan_run in data.get('runs', []):
+            if not scan_run.get('invocations'):
+                scan_run['invocations'] = [{'executionSuccessful': True}]
+        output.write_text(json.dumps(compact_sarif(data), separators=(',', ':')))
     return code
 
 

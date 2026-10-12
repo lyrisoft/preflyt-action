@@ -7,12 +7,15 @@ waits for verification and publication before the workflow can pass.
 
 No Preflyt API key, manual report upload or separate publication workflow is needed.
 Authentication uses short-lived GitHub Actions OIDC tokens. The Action supports
-same-repository, non-draft pull requests on Linux runners with Python 3 and Git.
+same-repository, non-draft pull requests on Linux runners with Python 3, Git and Docker.
+
+Version **v2.0.0** uses the policy-only execution contract. Upgrading from v1.1.0
+requires removing the old `checks` input.
 
 ## Existing workflow
 
 Copy the generated YAML from your policy or standard. Keep dependency installation
-and report-producing steps in the check job. Use one policy step per workflow.
+in the check job. Configure project and custom check commands in Standards. Use one policy step per workflow.
 Make the final gate depend on every check job, including matrix and reusable jobs.
 It must be terminal: do not put additional jobs after it.
 
@@ -34,14 +37,12 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
-      # Keep your dependency installation and actual check/report steps here.
+      # Keep your project dependency installation here.
       - name: Preflyt policy
         if: ${{ always() && !cancelled() && github.event.pull_request.head.repo.full_name == github.repository }}
-        uses: lyrisoft/preflyt-action@v1.1.0
+        uses: lyrisoft/preflyt-action@v2.0.0
         with:
           api-url: ${{ vars.PREFLYT_API_URL }}
-          checks: |
-            {"tests.required":{"report":"reports/tests.xml"}}
   preflyt_gate:
     name: Preflyt final gate
     needs: [checks]
@@ -52,18 +53,34 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: lyrisoft/preflyt-action@v1.1.0
+      - uses: lyrisoft/preflyt-action@v2.0.0
         with:
           mode: gate
           api-url: ${{ vars.PREFLYT_API_URL }}
 ```
 
-Replace the report configuration with the generated policy IDs and paths.
-`checks` accepts inline JSON or a repository JSON file. An optional `argv` array
-runs a real check command; built-in recipes use `preflyt-recipe` as the executable.
-Optional `proofs` can associate existing signed reports; signatures are not required
-for normal GitHub job verification. Pin both Action steps to the same immutable
-release SHA in production.
+The workflow has no check list or report mappings. Each run fetches the latest
+published policy for the PR target branch and executes that revision's commands.
+Adding a standard or changing a check takes effect after publishing a new policy
+revision. Editing an unpublished standard cannot alter an approved policy.
+
+Built-in security recipes provision **Semgrep**, **Gitleaks** and **Trivy** using
+reviewed image digests. Scans mount source read-only, receive no GitHub/OIDC
+credentials or Docker socket, and suppress raw logs. Gitleaks has no network;
+Semgrep and Trivy use the network for rules and vulnerability databases. Set
+`CONTAINER_IMAGE` in the job for a built container image scan.
+
+Project build, type checking, tests and lint reuse dependencies installed before
+Preflyt. Custom commands require their tools in that job. Configure the command
+and genuine JUnit/SARIF result path in Standards once, then publish the policy.
+Unknown controls, missing tools, absent/empty reports and timed-out commands stay
+incomplete. No check can reuse an earlier successful report. Limits remain 10
+reports, 256 KiB each and 900 KiB per submission; commands have a 285-second limit.
+Optional `proofs` associate existing signed bundles with report paths. Pin both
+Action steps to the same tested immutable commit.
+
+Upgrade the one existing integration by removing `with.checks` and updating both
+Action pins. Explicit mappings and report-only execution are no longer supported.
 
 ## Gate behavior
 

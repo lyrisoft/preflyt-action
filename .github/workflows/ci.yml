@@ -14,4 +14,16 @@ jobs:
       - name: Test runner and publication transport
         run: python3 -m unittest discover -p 'test_*.py' -v
       - name: Compile Action modules
-        run: python3 -m py_compile run.py recipes.py transport.py
+        run: python3 -m py_compile run.py recipes.py tools.py transport.py
+
+  scanners:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Verify pinned scanner images and genuine bounded SARIF
+        env:
+          PREFLYT_SCANNER_SMOKE: '1'
+        run: python3 -m unittest test_scanners -v

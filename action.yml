@@ -8,10 +8,6 @@ inputs:
   api-url:
     description: Public HTTPS Preflyt API URL (including its API prefix, if configured).
     required: true
-  checks:
-    description: Inline JSON of reviewed check commands and report paths, or a repository JSON file path.
-    required: false
-    default: '{}'
   mode:
     description: check runs policy checks; gate waits for verified check jobs, configured AI reviews and PR publication in the same workflow.
     required: false
@@ -60,7 +56,6 @@ runs:
       env:
         PREFLYT_ACTION_PATH: ${{ github.action_path }}
         PREFLYT_POLICY_PATH: ${{ steps.policy.outputs.policy }}
-        PREFLYT_CHECKS_PATH: ${{ inputs.checks }}
         PREFLYT_PROOFS: ${{ inputs.proofs }}
         PREFLYT_JOB_NAME: ${{ inputs.job-name || github.job }}
       run: python3 "$PREFLYT_ACTION_PATH/run.py"
