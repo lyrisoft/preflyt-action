@@ -88,12 +88,17 @@ def main(check, report):
         raise ValueError('Add a custom workflow command for this check.')
     # Scanner formats sometimes omit invocation metadata. Record a successful
     # invocation only after this runner observed a successful real command.
-    if code == 0:
+    if output.is_file() and output.stat().st_size:
         data = json.loads(output.read_text())
         for scan_run in data.get('runs', []):
             if not scan_run.get('invocations'):
-                scan_run['invocations'] = [{'executionSuccessful': True}]
+                scan_run['invocations'] = [{'executionSuccessful': code == 0}]
+            elif code != 0:
+                for invocation in scan_run['invocations']:
+                    invocation['executionSuccessful'] = False
         output.write_text(json.dumps(compact_sarif(data), separators=(',', ':')))
+    if check != 'lint.required' and code not in (0, 1):
+        return 78  # Partial/error output is retained but cannot establish completed coverage.
     return code
 
 

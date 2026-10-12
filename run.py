@@ -149,9 +149,10 @@ def main():
     proof_paths = json.loads(os.environ.get('PREFLYT_PROOFS', '{}'))
     if not isinstance(proof_paths, dict):
         raise ValueError('Proofs must map report paths to signed bundles')
-    results, reports = [], []
+    results, reports, details = [], [], {}
     for rule in rules:
         status = 'incomplete'
+        detail = 'No command configured in the published policy.'
         try:
             if rule['id'] == 'ci.configured':
                 status = 'passed' if any(Path('.github/workflows').glob('*.y*ml')) else 'failed'
@@ -186,13 +187,17 @@ def main():
                 with path.open('rb') as report_stream:
                     data = report_stream.read(MAX_REPORT + 1)
                 if not data or len(data) > MAX_REPORT:
+                    detail = 'Report is empty or exceeds the 256 KiB limit.'
                     raise ValueError('Report exceeds the supported size')
                 content = data.decode('utf-8')
                 status = report_result(fmt, content)
+                detail = 'Scanner reported findings.' if status == 'failed' and fmt == 'sarif' else 'Reported tests failed.' if status == 'failed' else 'Report contains incomplete execution evidence.' if status == 'incomplete' else ''
                 if code is None:
                     status = 'incomplete'
+                    detail = 'Execution was unavailable, timed out or returned partial scanner output.'
                 elif code != 0:
                     status = 'failed'
+                    detail = f'Command exited with status {code}.'
                 entry = {'ruleId': rule['id'], 'format': fmt, 'content': content, 'sha256': hashlib.sha256(data).hexdigest()}
                 proof_path = proof_paths.get(check['report'])
                 if proof_path:
@@ -205,6 +210,9 @@ def main():
                 reports.append(entry)
         except (OSError, ValueError, TypeError, KeyError, ET.ParseError):
             status = 'incomplete'
+            if detail == 'No command configured in the published policy.':
+                detail = 'A fresh report could not be read or evaluated.'
+        details[rule['id']] = detail if status != 'passed' else ''
         results.append({'ruleId': rule['id'], 'title': rule['title'], 'required': rule['required'], 'status': status})
     required = [item for item in results if item['required']]
     overall = 'failed' if any(item['status'] == 'failed' for item in required) else 'incomplete' if any(item['status'] != 'passed' for item in required) or not required else 'passed'
@@ -218,10 +226,10 @@ def main():
     with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
         stream.write(f'result={overall}\nbundle={output}\n')
     with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as stream:
-        stream.write(f'## Preflyt policy: {overall}\n\n| Check | Required | Result |\n|---|---|---|\n')
+        stream.write(f'## Preflyt policy: {overall}\n\n| Check | Required | Result | Details |\n|---|---|---|---|\n')
         for item in results:
             title = str(item['title']).replace('|', ' ').replace('\n', ' ').replace('<', '&lt;').replace('>', '&gt;')
-            stream.write(f"| {title} | {'Yes' if item['required'] else 'No'} | {item['status']} |\n")
+            stream.write(f"| {title} | {'Yes' if item['required'] else 'No'} | {item['status']} | {details[item['ruleId']] or '—'} |\n")
 
 
 if __name__ == '__main__':

@@ -44,3 +44,23 @@ class RealScannerTests(unittest.TestCase):
                         self.assertEqual(result, 'passed')
                     if check == 'iac.policy':
                         self.assertEqual(result, 'failed')
+
+class PartialScannerTests(unittest.TestCase):
+    def test_partial_scan_keeps_findings_and_compacts_rules_without_claiming_success(self):
+        from unittest.mock import patch
+        import recipes
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'partial.sarif'
+            def partial(*args):
+                path.write_text(json.dumps({'version': '2.1.0', 'runs': [{'tool': {'driver': {'name': 'Semgrep', 'rules': [{'id': 'unused', 'help': {'text': 'x' * 300000}}, {'id': 'issue'}]}}, 'invocations': [{'executionSuccessful': True, 'toolExecutionNotifications': [{'level': 'error', 'message': {'text': 'Parser error'}}]}], 'results': [{'ruleId': 'issue', 'ruleIndex': 1, 'level': 'warning', 'message': {'text': 'Actual finding'}}]}]}))
+                return 3
+            with patch.object(recipes, 'scan', side_effect=partial):
+                self.assertEqual(recipes.main('security.sast', str(path)), 78)
+            content = path.read_text()
+            self.assertLess(len(content.encode()), MAX_REPORT)
+            data = json.loads(content)['runs'][0]
+            self.assertEqual(len(data['results']), 1)
+            self.assertEqual(data['results'][0]['message']['text'], 'Actual finding')
+            self.assertFalse(data['invocations'][0]['executionSuccessful'])
+            self.assertEqual(len(data['invocations'][0]['toolExecutionNotifications']), 1)
+            self.assertEqual(report_result('sarif', content), 'incomplete')

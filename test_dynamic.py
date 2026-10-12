@@ -58,6 +58,7 @@ class DynamicPolicyTests(unittest.TestCase):
         _, outputs, bundle = self.execute([self.check(), {'id': 'frontend.components', 'title': 'Components', 'required': True, 'execution': None}])
         self.assertEqual(outputs['result'], 'incomplete')
         self.assertEqual(bundle['results'][1]['status'], 'incomplete')
+        self.assertIn('No command configured in the published policy.', (self.root / 'summary').read_text())
 
     def test_custom_report_is_generated_by_the_approved_command(self):
         rule = {'id': 'custom-junit-fixture', 'title': 'Contract tests', 'required': True,
