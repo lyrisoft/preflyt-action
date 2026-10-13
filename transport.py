@@ -50,21 +50,74 @@ def api(path, body=None):
                 raise
         time.sleep(2 ** attempt)
 
+GATE_STAGES = {
+    'CHECK_JOBS': 'Waiting for completed CI jobs',
+    'RESULT_SUBMISSION': 'Waiting for the result submission',
+    'RESULT_VERIFICATION': 'Verifying submitted execution evidence',
+    'GITHUB_PUBLICATION': 'Waiting for verified GitHub check publication',
+    'AI_REVIEW': 'Waiting for the configured AI review',
+    'AI_PUBLICATION': 'Waiting for AI feedback publication',
+}
+GATE_FAILURES = {
+    'CONTEXT_CHANGED': 'The pull request or published policy changed. Rerun the checks workflow.',
+    'RESULT_VERIFICATION_FAILED': 'The submitted run could not be verified. Review the saved assessment.',
+    'POLICY_RESULT_FAILED': 'Required policy checks failed or evidence is incomplete. Review the saved assessment.',
+    'GITHUB_PUBLICATION_FAILED': 'The GitHub check publication could not be verified.',
+    'CHECK_JOBS_FAILED': 'One or more prerequisite CI jobs failed.',
+    'AI_REVIEW_FAILED': 'The configured AI review could not complete.',
+    'AI_PUBLICATION_FAILED': 'AI feedback could not be published to the pull request.',
+    'INVALID_RESPONSE': 'The API returned an unrecognized gate response. Verification remains unconfirmed.',
+}
+
+class GateError(ValueError):
+    pass
+
+class GateTimeout(TimeoutError):
+    pass
+
+def gate_error_message(error):
+    # Never interpolate API bodies, URLs, exception text or repository content.
+    if isinstance(error, GateError):
+        code = error.args[0] if error.args else None
+        if not isinstance(code, str) or code not in GATE_FAILURES:
+            return 'Preflyt policy or publication failed. Review the saved assessment and rerun checks.'
+        return code + ': ' + GATE_FAILURES[code]
+    if isinstance(error, GateTimeout):
+        return 'GATE_TIMEOUT: Verification did not finish within fifteen minutes. Review the last waiting stage and rerun after resolving it.'
+    if isinstance(error, HTTPError) and isinstance(error.code, int) and 400 <= error.code <= 599:
+        return f'API_HTTP_{error.code}: Gate request was rejected. Check API availability, id-token permission and enabled PR checks.'
+    if isinstance(error, (URLError, OSError)):
+        return 'API_UNAVAILABLE: Could not reach the verification API. Check the API and tunnel, then rerun the workflow.'
+    return 'GATE_UNCONFIRMED: Could not confirm gate verification. Check API availability and review the saved assessment.'
+
 def wait_for_publication(run_id, attempt, timeout=900):
     if not run_id.isdigit() or not attempt.isdigit():
-        raise ValueError('Invalid source run')
-    deadline = time.monotonic() + timeout
+        raise GateError('INVALID_RESPONSE')
+    started = time.monotonic()
+    deadline = started + timeout
+    last_stage, last_log = None, started
     while time.monotonic() < deadline:
         result = api('publication?' + urlencode({'run': run_id, 'attempt': attempt}))
+        if not isinstance(result, dict):
+            raise GateError('INVALID_RESPONSE')
         state = result.get('state')
+        stage = result.get('stage')
+        now = time.monotonic()
+        elapsed = int(now - started)
         if state == 'PASSED':
+            print(f'Preflyt gate: Verified GitHub publication and required review feedback ({elapsed}s elapsed).', flush=True)
             return
         if state == 'FAILED':
-            raise ValueError('Preflyt publication or policy gate failed')
+            raise GateError(stage if isinstance(stage, str) and stage in GATE_FAILURES else 'FAILED')
         if state != 'PENDING':
-            raise ValueError('Publication response was not confirmed')
+            raise GateError('INVALID_RESPONSE')
+        safe_stage = stage if isinstance(stage, str) and stage in GATE_STAGES else 'VERIFICATION'
+        if safe_stage != last_stage or now - last_log >= 30:
+            message = GATE_STAGES.get(safe_stage, 'Waiting for verified Preflyt results')
+            print(f'Preflyt gate: {message} ({elapsed}s elapsed).', flush=True)
+            last_stage, last_log = safe_stage, now
         time.sleep(5)
-    raise TimeoutError('Preflyt publication was not verified within fifteen minutes')
+    raise GateTimeout()
 
 def main():
     if sys.argv[1] == 'fetch':
@@ -97,9 +150,9 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except Exception:
+    except Exception as error:
         if len(sys.argv) > 1 and sys.argv[1] == 'gate':
-            print('::error::Preflyt could not confirm a passing GitHub publication. Publication failed, the result is incomplete, the PR changed, or the fifteen-minute wait expired. Rerun the checks workflow or this gate after resolving the error.')
+            print('::error::' + gate_error_message(error))
             raise SystemExit(1)
         print('::error::Preflyt could not fetch the policy or submit results. Check API reachability, id-token permission, published policy and enabled PR checks.')
         raise SystemExit(1)

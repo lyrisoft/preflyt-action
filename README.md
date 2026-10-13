@@ -9,7 +9,7 @@ No Preflyt API key, manual report upload or separate publication workflow is nee
 Authentication uses short-lived GitHub Actions OIDC tokens. The Action supports
 same-repository, non-draft pull requests on Linux runners with Python 3, Git and Docker.
 
-Version **v2.1.0** uses the policy-only execution contract. Upgrading from v1.1.0
+Version **v2.1.1** uses the policy-only execution contract. Upgrading from v1.1.0
 requires removing the old `checks` input.
 
 ## Existing workflow
@@ -115,3 +115,9 @@ workflow when upgrading. Setup PRs include that deletion automatically. No file
 needs to be installed on the repository default branch.
 
 The Action is MIT licensed; the Preflyt application has a separate license.
+
+### Gate progress and safe diagnostics
+
+The gate prints its current waiting stage when it changes, with a heartbeat every 30 seconds while the same stage remains pending. Stages distinguish completed CI jobs, result submission/verification, GitHub check publication, AI review and AI feedback publication. Older Preflyt servers without stage fields keep the generic waiting label.
+
+Failure logs use local allowlisted reasons or an HTTP status code. Tokens, API bodies, raw exceptions, provider responses and PR text are never printed. Unknown responses and failures remain unconfirmed; the fifteen-minute limit and all gate requirements are preserved.
