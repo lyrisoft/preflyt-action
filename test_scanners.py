@@ -24,6 +24,30 @@ class SarifCompactionTests(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get('PREFLYT_SCANNER_SMOKE') == '1', 'Opt-in real Docker scanners')
 class RealScannerTests(unittest.TestCase):
+    def test_owned_rules_detect_vulnerable_cases_and_leave_safe_cases_unflagged(self):
+        import re
+        with tempfile.TemporaryDirectory(prefix='preflyt-owned-cases-') as directory:
+            root = Path(directory)
+            expected = set()
+            safe = set()
+            for fixture in Path(__file__).parent.joinpath('rules', 'tests').iterdir():
+                target = root / fixture.name
+                target.write_bytes(fixture.read_bytes())
+                for number, line in enumerate(target.read_text().splitlines(), start=1):
+                    match = re.search(r'(ruleid|ok): ([a-z0-9-]+)', line)
+                    if match:
+                        (expected if match[1] == 'ruleid' else safe).add((fixture.name, number + 1, match[2]))
+            env = {**os.environ, 'GITHUB_WORKSPACE': directory, 'RUNNER_TEMP': directory}
+            result = subprocess.run([sys.executable, str(Path(__file__).with_name('recipes.py')), 'security.sast', 'output/report.sarif'], cwd=root, env=env, timeout=480)
+            self.assertEqual(result.returncode, 0)
+            data = json.loads(root.joinpath('output/report.sarif').read_text())
+            found = {(Path(item['locations'][0]['physicalLocation']['artifactLocation']['uri']).name,
+                      item['locations'][0]['physicalLocation']['region']['startLine'], item['ruleId'])
+                     for scan in data['runs'] for item in scan['results']}
+            self.assertEqual(found, expected)
+            self.assertTrue(found.isdisjoint(safe))
+            self.assertEqual(len({case[2] for case in expected}), 18)
+            self.assertEqual(report_result('sarif', json.dumps(data)), 'failed')
     def test_real_tools_produce_bounded_reports_and_actual_findings(self):
         with tempfile.TemporaryDirectory(prefix='preflyt-scanner-fixture-') as directory:
             root = Path(directory)
@@ -51,7 +75,7 @@ class PartialScannerTests(unittest.TestCase):
         import recipes
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'partial.sarif'
-            def partial(*args):
+            def partial(*args, **kwargs):
                 path.write_text(json.dumps({'version': '2.1.0', 'runs': [{'tool': {'driver': {'name': 'Semgrep', 'rules': [{'id': 'unused', 'help': {'text': 'x' * 300000}}, {'id': 'issue'}]}}, 'invocations': [{'executionSuccessful': True, 'toolExecutionNotifications': [{'level': 'error', 'message': {'text': 'Parser error'}}]}], 'results': [{'ruleId': 'issue', 'ruleIndex': 1, 'level': 'warning', 'message': {'text': 'Actual finding'}}]}]}))
                 return 3
             with patch.object(recipes, 'scan', side_effect=partial):

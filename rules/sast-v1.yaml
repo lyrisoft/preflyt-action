@@ -1,0 +1,136 @@
+# Copyright 2026 Lyrisoft. SPDX-License-Identifier: MIT
+# Preflyt SAST v1: review-oriented checks, not a claim of complete vulnerability coverage.
+rules:
+  - id: preflyt-js-eval
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Dynamic eval can execute attacker-controlled code. Use a data parser instead.
+    pattern: eval(...)
+  - id: preflyt-js-function-constructor
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Function construction executes text as code and requires review.
+    pattern: new Function(...)
+  - id: preflyt-js-tls-verification-disabled
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: TLS certificate verification must remain enabled.
+    pattern: '{ ..., rejectUnauthorized: false, ... }'
+  - id: preflyt-js-gcm-tag-length
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: Require the intended authentication tag length when decrypting AES-GCM.
+    pattern: createDecipheriv("aes-256-gcm", $KEY, $NONCE)
+  - id: preflyt-js-weak-random
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: Use a cryptographic random generator for security tokens.
+    patterns:
+      - pattern: $TOKEN = Math.random()
+      - metavariable-regex:
+          metavariable: $TOKEN
+          regex: (?i).*(token|secret|password|nonce).*
+  - id: preflyt-js-http-url-credentials
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Do not place credentials in HTTP URLs.
+    paths:
+      # This test deliberately rejects credential-bearing canonical origins.
+      exclude: [apps/web/scripts/public-build.check.mjs]
+    patterns:
+      - pattern: '"$VALUE"'
+      - metavariable-regex:
+          metavariable: $VALUE
+          regex: '^https?://[^/@\s]+:[^/@\s]+@'
+  - id: preflyt-js-sql-interpolation
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Bind SQL values as parameters rather than concatenating query text.
+    pattern-either:
+      - pattern: $DB.query($LEFT + $RIGHT, ...)
+      - pattern: $DB.execute($LEFT + $RIGHT, ...)
+      - pattern: $DB.$queryRawUnsafe($LEFT + $RIGHT, ...)
+  - id: preflyt-js-document-write
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: document.write interprets HTML. Prefer textContent or a reviewed HTML sanitizer.
+    pattern: document.write(...)
+  - id: preflyt-js-html-assignment
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: Assigning dynamic HTML requires context-aware sanitization.
+    paths:
+      # Only generated, local SSR markup is copied by this hydration fixture.
+      exclude: [apps/web/src/homepage-hydration.test.tsx]
+    patterns:
+      - pattern-either:
+          - pattern: $ELEMENT.innerHTML = $HTML
+          - pattern: $ELEMENT.outerHTML = $HTML
+      - pattern-not: $ELEMENT.innerHTML = "..."
+      - pattern-not: $ELEMENT.outerHTML = "..."
+  - id: preflyt-js-child-process-shell
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: Shell execution requires trusted input. Prefer execFile with separate arguments.
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              import * as $CHILD from "node:child_process";
+              ...
+          - pattern-inside: |
+              import * as $CHILD from "child_process";
+              ...
+          - pattern-inside: |
+              const $CHILD = require("child_process");
+              ...
+      - pattern-either:
+          - pattern: $CHILD.exec($COMMAND, ...)
+          - pattern: $CHILD.execSync($COMMAND, ...)
+      - pattern-not: $CHILD.exec("...", ...)
+      - pattern-not: $CHILD.execSync("...", ...)
+  - id: preflyt-python-eval
+    languages: [python]
+    severity: ERROR
+    message: Dynamic eval can execute attacker-controlled code.
+    pattern: eval(...)
+  - id: preflyt-python-exec
+    languages: [python]
+    severity: ERROR
+    message: Dynamic exec can execute attacker-controlled code.
+    pattern: exec(...)
+  - id: preflyt-python-pickle
+    languages: [python]
+    severity: WARNING
+    message: Pickle can execute code during deserialization. Accept only trusted serialized input.
+    pattern-either:
+      - pattern: pickle.loads(...)
+      - pattern: pickle.load(...)
+  - id: preflyt-python-unsafe-yaml
+    languages: [python]
+    severity: ERROR
+    message: Use safe_load for YAML containing untrusted input.
+    pattern: yaml.load($INPUT)
+  - id: preflyt-python-tls-verification-disabled
+    languages: [python]
+    severity: ERROR
+    message: TLS certificate verification must remain enabled.
+    pattern: requests.$METHOD(..., verify=False, ...)
+  - id: preflyt-python-shell
+    languages: [python]
+    severity: WARNING
+    message: Shell execution requires trusted input. Prefer an argument list with shell=False.
+    pattern: subprocess.$METHOD(..., shell=True, ...)
+  - id: preflyt-python-sql-fstring
+    languages: [python]
+    severity: ERROR
+    message: Bind SQL values instead of interpolating them into query text.
+    patterns:
+      - pattern: $DB.execute($QUERY, ...)
+      - metavariable-regex:
+          metavariable: $QUERY
+          regex: '(?i)^f["\x27](SELECT|INSERT|UPDATE|DELETE|REPLACE)\b'
+  - id: preflyt-shell-download-execute
+    languages: [generic]
+    severity: ERROR
+    message: Downloading and immediately executing a script requires review and integrity verification.
+    pattern-regex: '(curl|wget)\b[^\n|]*\|\s*(sh|bash)\b'

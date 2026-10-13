@@ -67,16 +67,18 @@ runs:
         PREFLYT_API_URL: ${{ inputs.api-url }}
         PREFLYT_BUNDLE_PATH: ${{ steps.execute.outputs.bundle }}
       run: python3 "$PREFLYT_ACTION_PATH/transport.py" submit
-    - name: Apply policy result
+    - name: Record policy result
       if: ${{ always() && inputs.mode == 'check' }}
       shell: bash
       env:
         PREFLYT_RESULT: ${{ steps.execute.outputs.result }}
       run: |
-        if [ "$PREFLYT_RESULT" != "passed" ]; then
-          echo "Policy checks failed or required results are incomplete. See the job summary."
-          exit 1
-        fi
+        case "$PREFLYT_RESULT" in
+          passed|failed|incomplete)
+            echo "Policy result: $PREFLYT_RESULT. The Preflyt final gate enforces the verified policy."
+            ;;
+          *) echo "::error::Policy execution did not produce a result."; exit 1 ;;
+        esac
     - name: Wait for verified Preflyt publication
       if: ${{ inputs.mode == 'gate' }}
       shell: bash

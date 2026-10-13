@@ -84,12 +84,27 @@ Action pins. Explicit mappings and report-only execution are no longer supported
 
 ## Gate behavior
 
+Built-in SAST uses **Preflyt SAST v1**, an MIT-licensed set of 18 owned,
+review-oriented rules with a checked SHA-256 digest, executed by pinned Semgrep
+1.179.0. It checks specific JavaScript/TypeScript, Python and shell patterns;
+it does not provide exhaustive, interfile or full Semgrep registry coverage.
+The real scanner tests include a vulnerable example of every rule and safe cases.
+The scanner container is offline and never downloads registry rules. See
+`rules/sast-v1.yaml` for the exact checks and two narrowly documented fixture
+exceptions. Configure a custom SARIF command for a separately licensed scanner.
+
 Keep the display name **Preflyt final gate**. Preflyt verifies every other job in
 the exact run attempt directly with GitHub and waits while another job is active.
 Skipped conditional jobs are allowed; missing, cancelled or failed check execution
 cannot establish a passing result. The workflow fails when required checks fail,
 verification is incomplete, AI execution is unavailable, or PR publishing fails.
 AI findings remain advisory and cannot override deterministic checks.
+
+Check mode completes after genuine reports are submitted, even when a check fails
+or is incomplete. This separates successful report collection from policy approval
+and lets Preflyt verify each report independently. Always require **Preflyt final
+gate** in branch protection; that job fails for failed or incomplete required checks.
+Transport and execution infrastructure errors still fail the check job.
 
 Gate mode defaults to the current run and attempt. It polls for up to 15 minutes,
 refreshing its OIDC token on each request. `source-run` and `source-attempt`, if

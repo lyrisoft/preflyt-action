@@ -18,7 +18,7 @@ def clean_environment():
             and k not in ('GITHUB_TOKEN', 'GH_TOKEN')}
 
 
-def scan(tool, argv, report):
+def scan(tool, argv, report, *, rules=None):
     """Pull only the reviewed image, mount the source read-only and one output file."""
     docker = shutil.which('docker')
     if not docker or tool not in IMAGES:
@@ -51,6 +51,10 @@ def scan(tool, argv, report):
                        '--workdir', str(root), '--entrypoint', tool]
             if tool == 'gitleaks':
                 command += ['--network', 'none']
+            if tool == 'semgrep':
+                if rules is None or rules.resolve() != Path(__file__).resolve().parent / 'rules' / 'sast-v1.yaml':
+                    return 78
+                command += ['--network', 'none', '--mount', f'type=bind,src={rules},dst={rules},readonly']
             command += [IMAGES[tool], *argv]
             return subprocess.run(command, env=env, stdout=subprocess.DEVNULL,
                                   stderr=subprocess.DEVNULL, timeout=270, check=False).returncode

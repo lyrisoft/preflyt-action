@@ -1,4 +1,5 @@
 """Reviewed defaults executed only in the repository's GitHub runner."""
+import hashlib
 import json
 import os
 import shutil
@@ -65,7 +66,11 @@ def main(check, report):
             raise ValueError('Unsupported test runner. Add your JUnit-producing test command to this check.')
         return run([sys.executable, '-m', 'pytest', f'--junitxml={report}'])
     if check == 'security.sast':
-        code = scan('semgrep', ['scan', '--config', 'p/default', '--metrics=off', '--disable-version-check', '--strict', '--sarif', '--output', report, '.'], report)
+        rules = Path(__file__).resolve().parent / 'rules' / 'sast-v1.yaml'
+        expected = rules.with_suffix('.sha256').read_text().split()[0]
+        if hashlib.sha256(rules.read_bytes()).hexdigest() != expected:
+            raise ValueError('Pinned SAST rules changed')
+        code = scan('semgrep', ['scan', '--config', str(rules), '--no-rewrite-rule-ids', '--metrics=off', '--disable-version-check', '--strict', '--sarif', '--output', report, '.'], report, rules=rules)
     elif check == 'secrets.scan':
         code = scan('gitleaks', ['dir', '.', '--redact', '--exit-code', '0', '--report-format', 'sarif', '--report-path', report], report)
     elif check in ('security.dependencies', 'containers.scan', 'iac.policy', 'iac.exposures'):
