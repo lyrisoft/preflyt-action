@@ -40,7 +40,7 @@ jobs:
       # Keep your project dependency installation here.
       - name: Preflyt policy
         if: ${{ always() && !cancelled() && github.event.pull_request.head.repo.full_name == github.repository }}
-        uses: lyrisoft/preflyt-action@6a9348428e8c0a71f7d2ae465166ab8fb0909774
+        uses: lyrisoft/preflyt-action@v2.1.1
         with:
           api-url: ${{ vars.PREFLYT_API_URL }}
   preflyt_gate:
@@ -53,7 +53,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: lyrisoft/preflyt-action@6a9348428e8c0a71f7d2ae465166ab8fb0909774
+      - uses: lyrisoft/preflyt-action@v2.1.1
         with:
           mode: gate
           api-url: ${{ vars.PREFLYT_API_URL }}
