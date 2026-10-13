@@ -9,7 +9,7 @@ No Preflyt API key, manual report upload or separate publication workflow is nee
 Authentication uses short-lived GitHub Actions OIDC tokens. The Action supports
 same-repository, non-draft pull requests on Linux runners with Python 3, Git and Docker.
 
-Version **v2.0.0** uses the policy-only execution contract. Upgrading from v1.1.0
+Version **v2.1.0** uses the policy-only execution contract. Upgrading from v1.1.0
 requires removing the old `checks` input.
 
 ## Existing workflow
@@ -40,7 +40,7 @@ jobs:
       # Keep your project dependency installation here.
       - name: Preflyt policy
         if: ${{ always() && !cancelled() && github.event.pull_request.head.repo.full_name == github.repository }}
-        uses: lyrisoft/preflyt-action@v2.0.0
+        uses: lyrisoft/preflyt-action@ef8c12b9e6ef1f60439a45c9f8b667826112b468
         with:
           api-url: ${{ vars.PREFLYT_API_URL }}
   preflyt_gate:
@@ -53,7 +53,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: lyrisoft/preflyt-action@v2.0.0
+      - uses: lyrisoft/preflyt-action@ef8c12b9e6ef1f60439a45c9f8b667826112b468
         with:
           mode: gate
           api-url: ${{ vars.PREFLYT_API_URL }}
