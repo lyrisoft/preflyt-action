@@ -29,9 +29,13 @@ def bounded_json(path, limit=MAX_BUNDLE):
 
 
 def within_workspace(value):
+    if (not isinstance(value, str) or not value or len(value) > 512 or
+            Path(value).is_absolute() or any(part in ('..', '.git') for part in Path(value).parts) or
+            any(ord(c) < 32 for c in value) or '\\' in value):
+        raise ValueError('Use a relative report path inside the repository')
     root = Path(os.environ['GITHUB_WORKSPACE']).resolve()
     target = (root / value).resolve()
-    if not target.is_relative_to(root):
+    if not target.is_relative_to(root) or target == root or target.is_dir():
         raise ValueError('Report path must remain inside the repository')
     return target
 
@@ -75,10 +79,36 @@ def recipe_command(argv):
 
 
 def is_recipe(argv):
-    return isinstance(argv, list) and (
-        argv[:1] == ['preflyt-recipe'] or
-        argv[:2] == ['python3', '.github/actions/preflyt-policy/recipes.py']
-    )
+    return isinstance(argv, list) and argv[:1] == ['preflyt-recipe']
+
+
+def execution_config(rules):
+    config, paths = {}, set()
+    for rule in rules:
+        execution = rule.get('execution')
+        if execution is None:
+            continue
+        if not isinstance(execution, dict) or set(execution) != {'report', 'argv'}:
+            raise ValueError('Policy execution configuration is invalid')
+        path = within_workspace(execution['report'])
+        argv = execution['argv']
+        if (not isinstance(argv, list) or not argv or len(argv) > 65 or
+                any(not isinstance(a, str) or '\0' in a or len(a) > 4096 for a in argv) or not argv[0]):
+            raise ValueError('Policy commands must use arguments arrays')
+        if is_recipe(argv) and argv != ['preflyt-recipe', rule['id'], execution['report']]:
+            raise ValueError('Recipe must match its check and output file')
+        if path in paths:
+            raise ValueError('Checks need independent report files')
+        relative = path.relative_to(Path(os.environ['GITHUB_WORKSPACE']).resolve())
+        tracked = subprocess.check_output(['git', 'ls-files', '--', str(relative)],
+                                          cwd=os.environ['GITHUB_WORKSPACE'])
+        if tracked:
+            raise ValueError('A result file must not overwrite repository source')
+        paths.add(path)
+        config[rule['id']] = execution
+    if len(config) > 10:
+        raise ValueError('At most 10 execution reports per workflow run')
+    return config
 
 
 def command_run(argv):
@@ -100,10 +130,6 @@ def command_run(argv):
 
 def main():
     policy = bounded_json(os.environ['PREFLYT_POLICY_PATH'])
-    checks_input = os.environ['PREFLYT_CHECKS_PATH']
-    if len(checks_input.encode('utf-8')) > MAX_BUNDLE:
-        raise ValueError('Configuration exceeds size limit')
-    config = json.loads(checks_input) if checks_input.lstrip().startswith('{') else bounded_json(within_workspace(checks_input))
     if policy.get('schemaVersion') != 1 or policy.get('state') != 'PUBLISHED' or not isinstance(policy.get('checks'), list) or not policy['checks'] or len(policy['checks']) > 64:
         raise ValueError('Export a published Preflyt policy before running checks')
     if policy.get('sourceSha') != os.environ.get('GITHUB_SHA'):
@@ -113,8 +139,9 @@ def main():
         raise ValueError('Check out the pull request head commit before running the policy')
     rules = policy['checks']
     ids = [rule['id'] for rule in rules]
-    if len(ids) != len(set(ids)) or not isinstance(config, dict) or any(key not in ids for key in config):
-        raise ValueError('Check commands must match the policy')
+    if len(ids) != len(set(ids)) or policy.get('executionVersion') != 1:
+        raise ValueError('Fetch a published policy with supported execution configuration')
+    config = execution_config(rules)
     if str(policy['repositoryId']) != os.environ.get('GITHUB_REPOSITORY_ID'):
         raise ValueError('Policy belongs to another repository')
     if any(type(rule.get('required')) is not bool for rule in rules):
@@ -122,9 +149,10 @@ def main():
     proof_paths = json.loads(os.environ.get('PREFLYT_PROOFS', '{}'))
     if not isinstance(proof_paths, dict):
         raise ValueError('Proofs must map report paths to signed bundles')
-    results, reports = [], []
+    results, reports, details = [], [], {}
     for rule in rules:
         status = 'incomplete'
+        detail = 'No command configured in the published policy.'
         try:
             if rule['id'] == 'ci.configured':
                 status = 'passed' if any(Path('.github/workflows').glob('*.y*ml')) else 'failed'
@@ -156,17 +184,20 @@ def main():
                             if code != 0:
                                 ET.SubElement(case, 'failure', message='Command failed')
                         path.write_bytes(ET.tostring(suite, encoding='utf-8', xml_declaration=True))
-                else:
-                    code = 0  # Existing job reports are still parsed; absence cannot pass.
-                data = path.read_bytes()
+                with path.open('rb') as report_stream:
+                    data = report_stream.read(MAX_REPORT + 1)
                 if not data or len(data) > MAX_REPORT:
+                    detail = 'Report is empty or exceeds the 256 KiB limit.'
                     raise ValueError('Report exceeds the supported size')
                 content = data.decode('utf-8')
                 status = report_result(fmt, content)
+                detail = 'Scanner reported findings.' if status == 'failed' and fmt == 'sarif' else 'Reported tests failed.' if status == 'failed' else 'Report contains incomplete execution evidence.' if status == 'incomplete' else ''
                 if code is None:
                     status = 'incomplete'
+                    detail = 'Execution was unavailable, timed out or returned partial scanner output.'
                 elif code != 0:
                     status = 'failed'
+                    detail = f'Command exited with status {code}.'
                 entry = {'ruleId': rule['id'], 'format': fmt, 'content': content, 'sha256': hashlib.sha256(data).hexdigest()}
                 proof_path = proof_paths.get(check['report'])
                 if proof_path:
@@ -179,6 +210,9 @@ def main():
                 reports.append(entry)
         except (OSError, ValueError, TypeError, KeyError, ET.ParseError):
             status = 'incomplete'
+            if detail == 'No command configured in the published policy.':
+                detail = 'A fresh report could not be read or evaluated.'
+        details[rule['id']] = detail if status != 'passed' else ''
         results.append({'ruleId': rule['id'], 'title': rule['title'], 'required': rule['required'], 'status': status})
     required = [item for item in results if item['required']]
     overall = 'failed' if any(item['status'] == 'failed' for item in required) else 'incomplete' if any(item['status'] != 'passed' for item in required) or not required else 'passed'
@@ -192,10 +226,10 @@ def main():
     with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
         stream.write(f'result={overall}\nbundle={output}\n')
     with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as stream:
-        stream.write(f'## Preflyt policy: {overall}\n\n| Check | Required | Result |\n|---|---|---|\n')
+        stream.write(f'## Preflyt policy: {overall}\n\n| Check | Required | Result | Details |\n|---|---|---|---|\n')
         for item in results:
             title = str(item['title']).replace('|', ' ').replace('\n', ' ').replace('<', '&lt;').replace('>', '&gt;')
-            stream.write(f"| {title} | {'Yes' if item['required'] else 'No'} | {item['status']} |\n")
+            stream.write(f"| {title} | {'Yes' if item['required'] else 'No'} | {item['status']} | {details[item['ruleId']] or '—'} |\n")
 
 
 if __name__ == '__main__':

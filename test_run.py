@@ -21,7 +21,7 @@ class PublishedActionTests(unittest.TestCase):
 
     def test_recipe_and_custom_commands_are_distinguished(self):
         self.assertTrue(policy_run.is_recipe(["preflyt-recipe", "tests.required", "x"]))
-        self.assertTrue(policy_run.is_recipe(["python3", ".github/actions/preflyt-policy/recipes.py", "tests.required", "x"]))
+        self.assertFalse(policy_run.is_recipe(["python3", ".github/actions/preflyt-policy/recipes.py", "tests.required", "x"]))
         self.assertFalse(policy_run.is_recipe(["python3", "user-tool.py"]))
         self.assertEqual(policy_run.recipe_command(["npm", "test"]), ["npm", "test"])
 
