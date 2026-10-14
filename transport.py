@@ -90,6 +90,19 @@ def gate_error_message(error):
         return 'API_UNAVAILABLE: Could not reach the verification API. Check the API and tunnel, then rerun the workflow.'
     return 'GATE_UNCONFIRMED: Could not confirm gate verification. Check API availability and review the saved assessment.'
 
+def check_error_message(error):
+    # Local categories only: exception text, URLs, bodies and commands can contain secrets.
+    if isinstance(error, HTTPError) and isinstance(error.code, int) and 400 <= error.code <= 599:
+        return f'API_HTTP_{error.code}: Policy transport was rejected. Check API logs for this workflow run.'
+    if isinstance(error, TimeoutError) or (isinstance(error, URLError) and isinstance(error.reason, TimeoutError)):
+        return 'API_TIMEOUT: Policy transport timed out. Check API response time and tunnel connectivity.'
+    if isinstance(error, (URLError, OSError)):
+        return 'API_UNAVAILABLE: Policy transport could not connect. Check API and tunnel availability.'
+    if isinstance(error, (ValueError, KeyError, TypeError)):
+        return 'TRANSPORT_INVALID_RESPONSE: Policy configuration or the transport response was invalid. Check the API and Action versions.'
+    return 'TRANSPORT_UNCONFIRMED: Policy transport could not be confirmed. Check API logs for this workflow run.'
+
+
 def wait_for_publication(run_id, attempt, timeout=900):
     if not run_id.isdigit() or not attempt.isdigit():
         raise GateError('INVALID_RESPONSE')
@@ -154,5 +167,5 @@ if __name__ == '__main__':
         if len(sys.argv) > 1 and sys.argv[1] == 'gate':
             print('::error::' + gate_error_message(error))
             raise SystemExit(1)
-        print('::error::Preflyt could not fetch the policy or submit results. Check API reachability, id-token permission, published policy and enabled PR checks.')
+        print('::error::' + check_error_message(error))
         raise SystemExit(1)

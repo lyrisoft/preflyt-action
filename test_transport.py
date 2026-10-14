@@ -4,13 +4,30 @@ import unittest
 import io
 import itertools
 from contextlib import redirect_stdout
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from unittest.mock import patch
 spec = importlib.util.spec_from_file_location("transport", Path(__file__).with_name("transport.py"))
 transport = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(transport)
 
 class PublicationGateTests(unittest.TestCase):
+    def test_check_transport_diagnostics_identify_status_and_timeout_without_private_values(self):
+        private = 'Bearer private-token\n::warning::injected'
+        for code in (401, 403, 409, 413, 429, 502, 503, 504):
+            error = HTTPError('https://private.example/?token=secret', code, private, {}, io.BytesIO(private.encode()))
+            self.assertIn(f'API_HTTP_{code}', transport.check_error_message(error))
+            self.assertNotIn('private', transport.check_error_message(error))
+            error.close()
+        for error in (TimeoutError(private), URLError(TimeoutError(private))):
+            self.assertIn('API_TIMEOUT', transport.check_error_message(error))
+        for error in (URLError(private), OSError(private)):
+            self.assertIn('API_UNAVAILABLE', transport.check_error_message(error))
+        for error in (ValueError(private), KeyError(private), TypeError(private), RuntimeError(private)):
+            message = transport.check_error_message(error)
+            self.assertNotIn('private', message)
+            self.assertNotIn('secret', message)
+            self.assertNotIn('::warning::', message)
+
     def test_pending_then_verified_success(self):
         with patch.object(transport, "api", side_effect=[{"state": "PENDING"}, {"state": "PASSED"}]) as api, patch.object(transport.time, "sleep"):
             transport.wait_for_publication("123", "2")

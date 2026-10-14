@@ -118,6 +118,11 @@ The Action is MIT licensed; the Preflyt application has a separate license.
 
 ### Gate progress and safe diagnostics
 
+Policy fetch and result submission failures also report safe categories:
+`API_HTTP_<status>`, `API_TIMEOUT`, `API_UNAVAILABLE`,
+`TRANSPORT_INVALID_RESPONSE`, or `TRANSPORT_UNCONFIRMED`. These retain the
+nonzero exit status without printing tokens, URLs, API bodies or report content.
+
 The gate prints its current waiting stage when it changes, with a heartbeat every 30 seconds while the same stage remains pending. Stages distinguish completed CI jobs, result submission/verification, GitHub check publication, AI review and AI feedback publication. Older Preflyt servers without stage fields keep the generic waiting label.
 
 Failure logs use local allowlisted reasons or an HTTP status code. Tokens, API bodies, raw exceptions, provider responses and PR text are never printed. Unknown responses and failures remain unconfirmed; the fifteen-minute limit and all gate requirements are preserved.
