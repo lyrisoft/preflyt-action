@@ -71,6 +71,24 @@ class DynamicPolicyTests(unittest.TestCase):
         _, outputs, _ = self.execute([rule])
         self.assertEqual(outputs['result'], 'incomplete')  # Old passing report removed.
 
+    def test_existing_test_command_emits_junit_and_coverage_once_without_receiving_tokens(self):
+        self.env.update(PREFLYT_COLLECT_COVERAGE='true', PREFLYT_COVERAGE_TOKEN='fixture-private')
+        command = ("import os; from pathlib import Path; "
+                   "assert os.environ.get('PREFLYT_COLLECT_COVERAGE') == 'true'; "
+                   "assert 'PREFLYT_COVERAGE_TOKEN' not in os.environ; "
+                   "p=Path('reports'); p.mkdir(exist_ok=True); "
+                   "p.joinpath('tests.xml').write_text('<testsuite><testcase name=\"actual\"/></testsuite>'); "
+                   "p.joinpath('coverage.info').write_text('SF:src/a.ts\\nDA:1,1\\nLF:1\\nLH:1\\nend_of_record\\n'); "
+                   "p.joinpath('executions').open('a').write('once\\n')")
+        rule = {'id':'frontend.components','title':'Components','required':True,
+                'execution':{'report':'reports/tests.xml','argv':[sys.executable,'-c',command]}}
+        result, outputs, bundle = self.execute([rule])
+        self.assertEqual(result.returncode,0)
+        self.assertEqual(outputs['result'],'passed')
+        self.assertEqual(len(bundle['reports']),1)
+        self.assertTrue((self.root/'reports/coverage.info').is_file())
+        self.assertEqual((self.root/'reports/executions').read_text(),'once\n')
+
     def test_never_uses_explicit_report_mappings_or_tracked_output(self):
         check = self.check()
         check['execution'].pop('argv')

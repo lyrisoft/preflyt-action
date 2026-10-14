@@ -75,7 +75,7 @@ Preflyt. Custom commands require their tools in that job. Configure the command
 and genuine JUnit/SARIF result path in Standards once, then publish the policy.
 Unknown controls, missing tools, absent/empty reports and timed-out commands stay
 incomplete. No check can reuse an earlier successful report. Limits remain 10
-reports, 256 KiB each and 900 KiB per submission; commands have a 285-second limit.
+reports, 256 KiB per regular report and 900,000 bytes per submission; commands have a 285-second limit.
 Optional `proofs` associate existing signed bundles with report paths. Pin both
 Action steps to the same tested immutable commit.
 
@@ -126,3 +126,54 @@ nonzero exit status without printing tokens, URLs, API bodies or report content.
 The gate prints its current waiting stage when it changes, with a heartbeat every 30 seconds while the same stage remains pending. Stages distinguish completed CI jobs, result submission/verification, GitHub check publication, AI review and AI feedback publication. Older Preflyt servers without stage fields keep the generic waiting label.
 
 Failure logs use local allowlisted reasons or an HTTP status code. Tokens, API bodies, raw exceptions, provider responses and PR text are never printed. Unknown responses and failures remain unconfirmed; the fifteen-minute limit and all gate requirements are preserved.
+
+## Optional same-run coverage (unreleased)
+
+This change requires the companion Preflyt API update. It does not add a policy
+check, coverage threshold or second test execution. Enable your framework's
+coverage provider in the existing policy test command so it emits fresh LCOV.
+Pin both check/gate steps to the same released immutable commit before use;
+published v2.1.1 does not support these inputs.
+
+```yaml
+# On the existing policy step, after upgrading its Action pin:
+env:
+  PREFLYT_COLLECT_COVERAGE: 'true' # Preflyt repository's Vitest opt-in
+with:
+  api-url: ${{ vars.PREFLYT_API_URL }}
+  coverage-reports: '[{"path":"apps/web/coverage/lcov.info","prefix":"apps/web"}]'
+  # Optional LCOV artifact from a parallel job in this run/attempt:
+  coverage-artifact: api-coverage-${{ github.run_id }}-${{ github.run_attempt }}
+```
+
+`coverage-reports` is a JSON array of objects with exactly `path` and `prefix`.
+Paths stay inside the checkout, must be fresh from this execution, and package
+prefixes disambiguate API/web source. Empty LCOV, incomplete records, inconsistent
+LF/LH/DA counters, unsafe paths and stale files fail attachment. Zero-line files
+contribute no measured lines. Repeated physical lines are unioned once. Coverage
+uses the configured source scope; include untested files in the test framework
+configuration when that is the intended denominator.
+
+`coverage-artifact` requires job permission `actions: read` and uses `github-token`
+(default `github.token`) only for read-only artifact lookup and the pinned official
+GitHub download action. The token is not added to the policy command environment.
+Lookup is bounded to 120 seconds. The artifact must contain `lcov.info` and
+`metadata.json` with version 1, repositoryId/runId strings, numeric runAttempt,
+sourceSha equal to the PR head, prefix, and sha256 of the original LCOV bytes.
+Only the current run's artifact is accepted; the manifest also binds the attempt.
+Never restore test reports or this artifact from caches. Producer test jobs must
+remain prerequisites of the final gate.
+
+Attachment runs only after a passing policy execution. It appends optional
+`tests.coverage` with deterministic gzip/base64 content and SHA-256 over the
+decoded canonical LCOV; original policy results remain unchanged. Bounds are
+8 MiB per raw input, 2 MiB merged/decoded LCOV, 256 KiB compressed, 10 reports and
+900,000 bytes per submission. Missing requested artifacts, mismatched context or
+excess limits fail the check job rather than silently reporting partial coverage.
+No source file bodies are attached; LCOV includes paths and measured counters.
+
+Health projects the exact assessed commit after the server verifies the GitHub
+workflow execution and original report digest. A different merge/squash SHA never
+inherits this percentage. Explicit organization-key deployments still require
+a valid report signature; unsigned automatic coverage cannot satisfy that mode.
+The existing `proofs` mapping continues to apply to regular policy reports.

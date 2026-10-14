@@ -25,6 +25,18 @@ inputs:
     description: Optional JSON mapping report paths to existing signed proof bundle paths.
     required: false
     default: '{}'
+  coverage-reports:
+    description: Optional JSON array of current-run LCOV paths and repository package prefixes.
+    required: false
+    default: '[]'
+  coverage-artifact:
+    description: Optional API coverage artifact from this same workflow run and attempt.
+    required: false
+    default: ''
+  github-token:
+    description: Read-only Actions token used only to retrieve the coverage artifact.
+    required: false
+    default: ${{ github.token }}
 outputs:
   result:
     description: passed, failed, or incomplete
@@ -58,7 +70,38 @@ runs:
         PREFLYT_POLICY_PATH: ${{ steps.policy.outputs.policy }}
         PREFLYT_PROOFS: ${{ inputs.proofs }}
         PREFLYT_JOB_NAME: ${{ inputs.job-name || github.job }}
-      run: python3 "$PREFLYT_ACTION_PATH/run.py"
+      run: |
+        echo "coverage-since=$(date +%s)" >> "$GITHUB_OUTPUT"
+        python3 "$PREFLYT_ACTION_PATH/run.py"
+    - name: Locate current API coverage artifact
+      id: coverage-artifact
+      if: ${{ inputs.mode == 'check' && steps.execute.outputs.result == 'passed' && inputs.coverage-artifact != '' }}
+      shell: bash
+      env:
+        PREFLYT_ACTION_PATH: ${{ github.action_path }}
+        PREFLYT_COVERAGE_ARTIFACT: ${{ inputs.coverage-artifact }}
+        PREFLYT_COVERAGE_TOKEN: ${{ inputs.github-token }}
+      run: python3 "$PREFLYT_ACTION_PATH/coverage.py" wait
+    - name: Download current API coverage
+      id: coverage-download
+      if: ${{ steps.coverage-artifact.outputs.artifact-id != '' }}
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      with:
+        artifact-ids: ${{ steps.coverage-artifact.outputs.artifact-id }}
+        path: ${{ runner.temp }}/preflyt-coverage-${{ github.run_id }}-${{ github.run_attempt }}
+        merge-multiple: true
+        github-token: ${{ inputs.github-token }}
+    - name: Attach current test coverage
+      if: ${{ always() && inputs.mode == 'check' && steps.execute.outputs.result == 'passed' && (inputs.coverage-reports != '[]' || inputs.coverage-artifact != '') }}
+      shell: bash
+      env:
+        PREFLYT_ACTION_PATH: ${{ github.action_path }}
+        PREFLYT_BUNDLE_PATH: ${{ steps.execute.outputs.bundle }}
+        PREFLYT_COVERAGE_REPORTS: ${{ inputs.coverage-reports }}
+        PREFLYT_COVERAGE_SINCE: ${{ steps.execute.outputs.coverage-since }}
+        PREFLYT_COVERAGE_DIRECTORY: ${{ inputs.coverage-artifact != '' && steps.coverage-download.outputs.download-path || '' }}
+        PREFLYT_COVERAGE_ARTIFACT_REQUIRED: ${{ inputs.coverage-artifact != '' }}
+      run: python3 "$PREFLYT_ACTION_PATH/coverage.py" attach
     - name: Send results to Preflyt
       if: ${{ always() && inputs.mode == 'check' && steps.execute.outputs.bundle != '' }}
       shell: bash

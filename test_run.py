@@ -27,14 +27,15 @@ class PublishedActionTests(unittest.TestCase):
 
     def test_commands_do_not_receive_oidc_or_platform_credentials(self):
         with tempfile.TemporaryDirectory() as workspace:
-            env = {"GITHUB_WORKSPACE": workspace, "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "private", "GITHUB_TOKEN": "private", "GH_TOKEN": "private", "PREFLYT_API_URL": "private", "PATH": os.environ["PATH"]}
+            env = {"GITHUB_WORKSPACE": workspace, "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "private", "GITHUB_TOKEN": "private", "GH_TOKEN": "private", "PREFLYT_API_URL": "private", "PREFLYT_COVERAGE_TOKEN": "private", "PREFLYT_COLLECT_COVERAGE": "true", "PATH": os.environ["PATH"]}
             with patch.dict(os.environ, env, clear=True), patch.object(policy_run.subprocess, "Popen") as popen, patch.object(policy_run.os, "killpg"):
                 popen.return_value.wait.return_value = 0
                 self.assertEqual(policy_run.command_run(["preflyt-recipe", "tests.required", "results.xml"]), 0)
                 command = popen.call_args.args[0]
                 self.assertTrue(Path(command[1]).is_absolute())
                 passed_env = popen.call_args.kwargs["env"]
-                for secret in ["ACTIONS_ID_TOKEN_REQUEST_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "PREFLYT_API_URL"]:
+                self.assertEqual(passed_env['PREFLYT_COLLECT_COVERAGE'], 'true')
+                for secret in ["ACTIONS_ID_TOKEN_REQUEST_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "PREFLYT_API_URL", "PREFLYT_COVERAGE_TOKEN"]:
                     self.assertNotIn(secret, passed_env)
 
 

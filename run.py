@@ -115,6 +115,10 @@ def command_run(argv):
     if not isinstance(argv, list) or not argv or len(argv) > 65 or any(not isinstance(a, str) or '\0' in a or len(a) > 4096 for a in argv):
         raise ValueError('Use an executable and arguments array, not a shell string')
     env = {k: v for k, v in os.environ.items() if not k.startswith(('ACTIONS_ID_TOKEN_', 'PREFLYT_')) and k not in ('GITHUB_TOKEN', 'GH_TOKEN')}
+    # This boolean opts the existing test command into coverage. Keep every
+    # other Preflyt setting/token out of repository commands as before.
+    if os.environ.get('PREFLYT_COLLECT_COVERAGE') == 'true':
+        env['PREFLYT_COLLECT_COVERAGE'] = 'true'
     process = subprocess.Popen(recipe_command(argv), cwd=os.environ['GITHUB_WORKSPACE'], env=env, start_new_session=True)
     try:
         return process.wait(timeout=285)
