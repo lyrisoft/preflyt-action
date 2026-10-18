@@ -84,7 +84,7 @@ class RealLocalImageTests(unittest.TestCase):
         env = tools.clean_environment()
         try:
             with tempfile.TemporaryDirectory(prefix='preflyt-image-fixture-') as directory:
-                root = Path(directory)
+                root = Path(directory).resolve()
                 (root / 'Dockerfile').write_text('FROM scratch\nCOPY package-lock.json /app/package-lock.json\n')
                 (root / 'package-lock.json').write_text(json.dumps({
                     'name': 'fixture', 'version': '1.0.0', 'lockfileVersion': 3,
