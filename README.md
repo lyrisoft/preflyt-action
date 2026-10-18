@@ -9,7 +9,7 @@ No Preflyt API key, manual report upload or separate publication workflow is nee
 Authentication uses short-lived GitHub Actions OIDC tokens. The Action supports
 same-repository, non-draft pull requests on Linux runners with Python 3, Git and Docker.
 
-Version **v2.1.1** uses the policy-only execution contract. Upgrading from v1.1.0
+Version **v2.1.2** uses the policy-only execution contract. Upgrading from v1.1.0
 requires removing the old `checks` input.
 
 ## Existing workflow
@@ -40,7 +40,7 @@ jobs:
       # Keep your project dependency installation here.
       - name: Preflyt policy
         if: ${{ always() && !cancelled() && github.event.pull_request.head.repo.full_name == github.repository }}
-        uses: lyrisoft/preflyt-action@6a9348428e8c0a71f7d2ae465166ab8fb0909774
+        uses: lyrisoft/preflyt-action@v2.1.2
         with:
           api-url: ${{ vars.PREFLYT_API_URL }}
   preflyt_gate:
@@ -53,7 +53,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: lyrisoft/preflyt-action@6a9348428e8c0a71f7d2ae465166ab8fb0909774
+      - uses: lyrisoft/preflyt-action@v2.1.2
         with:
           mode: gate
           api-url: ${{ vars.PREFLYT_API_URL }}
@@ -76,8 +76,7 @@ and genuine JUnit/SARIF result path in Standards once, then publish the policy.
 Unknown controls, missing tools, absent/empty reports and timed-out commands stay
 incomplete. No check can reuse an earlier successful report. Limits remain 10
 reports, 256 KiB each and 900 KiB per submission; commands have a 285-second limit.
-Optional `proofs` associate existing signed bundles with report paths. Pin both
-Action steps to the same tested immutable commit.
+Optional `proofs` associate existing signed bundles with report paths. Use the same tested release version for both Action steps.
 
 Upgrade the one existing integration by removing `with.checks` and updating both
 Action pins. Explicit mappings and report-only execution are no longer supported.
@@ -121,3 +120,7 @@ The Action is MIT licensed; the Preflyt application has a separate license.
 The gate prints its current waiting stage when it changes, with a heartbeat every 30 seconds while the same stage remains pending. Stages distinguish completed CI jobs, result submission/verification, GitHub check publication, AI review and AI feedback publication. Older Preflyt servers without stage fields keep the generic waiting label.
 
 Failure logs use local allowlisted reasons or an HTTP status code. Tokens, API bodies, raw exceptions, provider responses and PR text are never printed. Unknown responses and failures remain unconfirmed; the fifteen-minute limit and all gate requirements are preserved.
+
+### Runner-built container images
+
+For the built-in container check, set `CONTAINER_IMAGE` to the image tag built by the workflow. A local image is exported with Docker on the runner and scanned from a read-only archive. The isolated scanner never receives the Docker socket or GitHub identity credentials. Failed or empty exports leave the check incomplete. Image references that are not present locally retain registry scanning behavior.

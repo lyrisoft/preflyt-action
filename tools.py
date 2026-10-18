@@ -37,9 +37,30 @@ def scan(tool, argv, report, *, rules=None):
                                 timeout=180, check=False)
         if pulled.returncode:
             return 78
-        with tempfile.TemporaryDirectory(prefix='preflyt-tool-', dir=os.environ.get('RUNNER_TEMP')) as cache:
-            if ',' in cache or any(ord(c) < 32 for c in cache):
+        with tempfile.TemporaryDirectory(prefix='preflyt-tool-', dir=os.environ.get('RUNNER_TEMP')) as scratch:
+            if ',' in scratch or any(ord(c) < 32 for c in scratch):
                 return 78
+            cache = Path(scratch) / 'cache'
+            cache.mkdir()
+            archive = None
+            if tool == 'trivy' and argv and argv[0] == 'image':
+                image = argv[-1]
+                if (not isinstance(image, str) or not image or len(image) > 512 or
+                        image.startswith('-') or any(ord(c) < 32 for c in image)):
+                    return 78
+                local = subprocess.run([docker, 'image', 'inspect', image], env=env,
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                       timeout=30, check=False)
+                if local.returncode == 0:
+                    archive = Path(scratch) / 'image.tar'
+                    saved = subprocess.run([docker, 'image', 'save', '--output', str(archive), image],
+                                           env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                           timeout=180, check=False)
+                    if saved.returncode or not archive.is_file() or archive.stat().st_size == 0:
+                        return 78
+                    # The scanner gets a read-only archive, never the host daemon.
+                    # Keep it outside the writable cache mount.
+                    argv = [*argv[:-1], '--input', '/preflyt-image.tar']
             command = [docker, 'run', '--rm', '--platform', 'linux/amd64', '--read-only',
                        '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
                        '--user', f'{os.getuid()}:{os.getgid()}', '--pids-limit', '128',
@@ -49,6 +70,8 @@ def scan(tool, argv, report, *, rules=None):
                        '--mount', f'type=bind,src={output},dst={output}',
                        '--mount', f'type=bind,src={cache},dst=/cache',
                        '--workdir', str(root), '--entrypoint', tool]
+            if archive is not None:
+                command += ['--mount', f'type=bind,src={archive},dst=/preflyt-image.tar,readonly']
             if tool == 'gitleaks':
                 command += ['--network', 'none']
             if tool == 'semgrep':

@@ -26,4 +26,4 @@ jobs:
       - name: Verify pinned scanner images and genuine bounded SARIF
         env:
           PREFLYT_SCANNER_SMOKE: '1'
-        run: python3 -m unittest test_scanners -v
+        run: python3 -m unittest test_scanners test_local_image -v
